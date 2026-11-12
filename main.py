@@ -46,7 +46,9 @@ flags.DEFINE_integer('batch_size', 128, help='batch size')
 flags.DEFINE_integer('num_workers', 4, help='workers of Dataloader')
 flags.DEFINE_float('ema_decay', 0.9999, help="ema decay rate")
 flags.DEFINE_bool('parallel', True, help='multi gpu training')
+
 flags.DEFINE_string('resume', None, help='path to checkpoint to resume training from')
+
 flags.DEFINE_string('dataset', 'CIFAR10', help='data set')
 flags.DEFINE_string('dataset_root', './datasets', help='data set')
 # Logging & Sampling
