@@ -46,7 +46,7 @@ flags.DEFINE_integer('batch_size', 128, help='batch size')
 flags.DEFINE_integer('num_workers', 4, help='workers of Dataloader')
 flags.DEFINE_float('ema_decay', 0.9999, help="ema decay rate")
 flags.DEFINE_bool('parallel', True, help='multi gpu training')
-
+flags.DEFINE_string('resume', None, help='path to checkpoint to resume training from')
 flags.DEFINE_string('dataset', 'CIFAR10', help='data set')
 flags.DEFINE_string('dataset_root', './datasets', help='data set')
 # Logging & Sampling
@@ -244,8 +244,17 @@ def train():
         model_size += param.data.nelement()
     print('Model params: %.2f M' % (model_size / 1024 / 1024))
 
+    step=0
+    if FLAGS.resume is not None:
+        ckpt = torch.load(FLAGS.resume)
+        net_model.load_state_dict(ckpt['net_model'])
+        ema_model.load_state_dict(ckpt['ema_model'])
+        optim.load_state_dict(ckpt['optim'])
+        sched.load_state_dict(ckpt['sched'])
+        step = ckpt['step'] + 1
+        x_T = ckpt['x_T']
     # start training
-    with trange(FLAGS.total_steps, dynamic_ncols=True) as pbar:
+    with trange(step, FLAGS.total_steps+step, dynamic_ncols=True, initial=step) as pbar:
         for step in pbar:
             # train
             optim.zero_grad()
@@ -279,8 +288,8 @@ def train():
                 ckpt = {
                     'net_model': net_model.state_dict(),
                     'ema_model': ema_model.state_dict(),
-                    'sched': sched.state_dict(),
                     'optim': optim.state_dict(),
+                    'sched': sched.state_dict(),
                     'step': step,
                     'x_T': x_T,
                 }
