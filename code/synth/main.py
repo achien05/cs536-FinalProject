@@ -4,13 +4,19 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import os
+import sys
 import joblib
 import argparse
 import time
 
+code_dir = os.path.abspath(                         #to redirect package importer search path
+    os.path.join(os.path.dirname(__file__), "..")
+)
+sys.path.insert(0, code_dir)
+
+from spotlight.datasets.movielens import get_movielens_dataset  #to enable
 from collections import defaultdict
 from functools import reduce
-
 import cvxpy as cp
 import rpy2.robjects as ro
 import rpy2.robjects.numpy2ri
@@ -96,6 +102,23 @@ def setup_data(args):
         W = gen_lowrank(args.N, args.rank)
         return setup_matcomplete(W, args.N, args.sample_size)
     elif args.data == "ml-100k-sample":
+        print(data_dir_100k)
+        if not os.path.exists(data_dir_100k):
+            dataset_100k = get_movielens_dataset(variant='100K')
+            output = np.column_stack((
+                dataset_100k.user_ids,
+                dataset_100k.item_ids,
+                dataset_100k.ratings,
+                dataset_100k.timestamps
+            ))
+            os.makedirs("ml-100k", exist_ok=True)
+            np.savetxt(
+                os.path.join(data_dir_100k,"u.data"),
+                output,
+                delimiter="\t",
+                fmt=["%d", "%d", "%d", "%d"]
+            )
+        
         W = data_ml_100k()
         return setup_ml_100k_sample(W, args.trainprop)
     
@@ -280,7 +303,7 @@ def solve_opt(data, args):
     res$X %*% res$S %*% t(res$Y)
     """)
     W_opt = torch.from_numpy(np.asarray(W_opt))
-
+    
 
 def main():
     # parsing input parameters
@@ -308,7 +331,9 @@ def main():
     parser.add_argument('--trainprop', type=float, default=0.8, help="training proportion")    
     
     args = parser.parse_args()
-
+    if os.path.basename(os.getcwd()) != "synth" and args.data == "ml-100k-sample":
+        print("run in synth")
+        return
     data = setup_data(args)
 
     if args.method == "DLNN":
@@ -320,6 +345,7 @@ def main():
         solve_si(data, args)
     elif args.method == "OPT":
         solve_opt(data, args)
-    
+
+
 if __name__ == "__main__":
     main()

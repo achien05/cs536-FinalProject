@@ -286,7 +286,7 @@ class ExplicitFactorizationModel(object):
         
         
         for epoch_num in range(self._n_iter):
-            print(f"training:{epoch_num+1}/{self._n_iter}")
+
             users, items, ratings = shuffle(user_ids,
                                             item_ids,
                                             interactions.ratings,

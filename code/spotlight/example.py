@@ -20,12 +20,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau, CosineAnnealingLR
 from spotlight.factorization.representations import BilinearNet
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-file_path=os.path.join(os.getcwd(), "Mlens_100K.joblib")
-if os.path.exists(file_path):
-    dataset_100k = joblib.load(file_path)
-else:
-    dataset_100k = get_movielens_dataset(variant='100K')
-    joblib.dump(dataset_100k,file_path)
+dataset_100k = joblib.load(os.getcwd() + "/Mlens_100K.joblib")
                                        
 model = ExplicitFactorizationModel(loss='regression',
            embedding_dim=128,
@@ -42,7 +37,7 @@ model = ExplicitFactorizationModel(loss='regression',
            lr_sched=True,
            use_cuda=torch.cuda.is_available())
 
-train, test = random_train_test_split(dataset_100k, test_percentage=0.2)
+train, test = random_train_test_split(dataset_100k, p=0.2)
 
 model.fit(train, test, verbose=False)
 
