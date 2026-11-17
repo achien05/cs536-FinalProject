@@ -248,7 +248,7 @@ def solve_nn(data, args, device):
                 effrank = effective_rank(W_).item()                
                 test_rmse = torch.sqrt(test_loss).item()
 
-                print(f"depth: {args.depth}, iteration: {T}, test_RMSE: {test_rmse}, erank: {effrank}")
+                print(f"depth: {args.depth}, iteration: {T}, test_MSE: {test_loss.item()}, test_RMSE: {test_rmse}, erank: {effrank}", flush=True)
 
                 if args.lrsched:
                     scheduler.step(test_loss)          
