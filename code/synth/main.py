@@ -34,9 +34,17 @@ def effective_rank(mat):
     x = sigmas / torch.sum(sigmas)
     return torch.exp(-torch.sum(x * torch.log(x + 1e-10)))
 
+#===================================== new added =====================================
 def extract_sv(W, name, T):
-    U,D,V = W.svd()
+    return torch.linalg.svdvals(W)
+#===================================== new added =====================================
 
+#===================================== original code =====================================
+# def extract_sv(W, name, T):
+#     U,D,V = W.svd()
+#===================================== original code =====================================
+
+# Generate a true low-rank matrix
 def gen_lowrank(N, rank):
     """generating low rank matrices"""
     U = np.random.randn(N, rank).astype(np.float32)
@@ -69,7 +77,7 @@ def data_ml_100k(data_dir=data_dir_100k, std_data=None):
             
     return torch.from_numpy(W).float()
 
-
+# Randomly extract observable elements
 def setup_matcomplete(W, N, n_train):
     indices = torch.multinomial(torch.ones(N*N), n_train, replacement=False)
     X_x, X_y = indices // N, indices % N
@@ -122,7 +130,7 @@ def setup_data(args):
         W = data_ml_100k()
         return setup_ml_100k_sample(W, args.trainprop)
     
-
+# Create a single or multi-layer network
 def build_nn(shape, D, nonlinear, device, incl_bias=False):
     hidden_sizes = [shape[0]] + [shape[1]] * (D) 
     layers = zip(hidden_sizes, hidden_sizes[1:]) 
@@ -143,7 +151,7 @@ def build_nn(shape, D, nonlinear, device, incl_bias=False):
             model = nn.Sequential(*[nn.Linear(f_in, f_out, bias=True) for (f_in, f_out) in layers])        
     return model.to(device)
 
-
+# Calculate the overall prediction matrix
 def W_e2e(model, args):
     """extract end-2-end W matrix from"""
     if args.incl_bias:
@@ -151,13 +159,29 @@ def W_e2e(model, args):
     else:
         return reduce( (lambda x, y: x @ y), [fc.weight.t() for fc in model[0::(1+args.nonlinear)]])    
 
+# Randomly initialize the weights
+#===================================== new added =====================================
 
-def init_nn(model, shape, D, initscale):
-    # gaussian
+def init_nn(model, shape, D, initscale, mode="original"):
     for param in model.parameters():
-        scale = initscale ** (1. / D) / np.sqrt(max(shape))
+        if mode == "paper":
+            scale = 1e-3
+        else:
+            scale = initscale ** (1. / D) / np.sqrt(max(shape))
+
         nn.init.normal_(param, std=scale)
-    
+#===================================== new added =====================================
+
+
+#===================================== original code =====================================
+# def init_nn(model, shape, D, initscale):
+#     # gaussian
+#     for param in model.parameters():
+#         scale = initscale ** (1. / D) / np.sqrt(max(shape))
+#         nn.init.normal_(param, std=scale)
+#===================================== original code =====================================
+
+# Calculate Loss, backpropagation, training and evaluation
 def solve_nn(data, args, device):
     
     data = tuple(d.to(device) for d in data)
@@ -168,17 +192,28 @@ def solve_nn(data, args, device):
         shape = (943,1682)
     
     model = build_nn(shape, args.depth, args.nonlinear, device, args.incl_bias)
-    init_nn(model, shape, args.depth, args.initscale)
 
-    
+    # ===================================== new added =====================================
+    init_nn(model,shape,args.depth,args.initscale,args.init_mode)
+    # ===================================== new added =====================================
+
+    # ===================================== original code =====================================
+    # init_nn(model, shape, args.depth, args.initscale)
+    # ===================================== original code =====================================
+
     if args.optim == "GD":
         optimizer = optim.SGD(model.parameters(), lr=args.lr)
+        print(f"debug: GD Optimizer: {optimizer}")
     elif args.optim == "Adam":
         optimizer = optim.Adam(model.parameters(), lr=args.lr)
     elif args.optim == "Adam_amsgrad":
         optimizer = optim.Adam(model.parameters(), lr=args.lr, amsgrad=True)        
     elif args.optim == "AdamW":
-        optimizer = optim.AdamW(model.parameters(), lr=args.lr)        
+        optimizer = optim.AdamW(model.parameters(), lr=args.lr)
+    # ===================================== new added =====================================
+    elif args.optim == "ASGD":
+        optimizer = optim.ASGD(model.parameters(), lr=args.lr)
+    # ===================================== new added =====================================
     elif args.optim == "NAdam":
         optimizer = optim.NAdam(model.parameters(), lr=args.lr)        
     elif args.optim == "RAdam":
@@ -195,16 +230,20 @@ def solve_nn(data, args, device):
         optimizer = optim.SGD(model.parameters(), lr=args.lr, nesterov=True, momentum=0.5)
     elif args.optim == "RMSprop":
         optimizer = optim.RMSprop(model.parameters(), lr=args.lr)
-    
-    criterion = nn.MSELoss()
-    
+    # ===================================== new added =====================================
+    criterion = nn.MSELoss(reduction=args.loss_reduction)
+    # ===================================== new added =====================================
+
+    # ===================================== original code =====================================
+    # criterion = nn.MSELoss()
+    # ===================================== original code =====================================
+
     if args.lrsched:
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=100, threshold=0.1, factor=0.5)
     
 
     Y_test = W[XT_x, XT_y]
 
-        
     for T in range(args.niters):
         W_ = W_e2e(model, args)
         Y_ = W_[X_x, X_y]
@@ -237,24 +276,89 @@ def solve_nn(data, args, device):
                 
         optimizer.zero_grad()
         loss.backward()
-        optimizer.step()
-        
-        
-        if T % args.log_interval == 0:
-            with torch.no_grad():
-                Y_test = torch.clamp(Y_test, min=1, max=5)
-                test_loss = torch.mean((W_[XT_x, XT_y] - Y_test)**2)
-                train_loss = torch.mean((Y - Y_)**2)
-                effrank = effective_rank(W_).item()                
-                test_rmse = torch.sqrt(test_loss).item()
 
-                print(f"depth: {args.depth}, iteration: {T}, test_MSE: {test_loss.item()}, test_RMSE: {test_rmse}, erank: {effrank}", flush=True)
+#added by ai to aid in finding the gradient magnitudes
+#        if T == 0:
+#            layer_grad_norms = [
+#                f"layer_{index}={layer.weight.grad.norm().item():.10e}"
+#                for index, layer in enumerate(
+#                    (module for module in model if isinstance(module, nn.Linear)),
+#                    start=1,
+#                )
+#            ]
+#            print(
+#                f"initial_weight_grad_norms: depth={args.depth}, "
+#                f"init_mode={args.init_mode}, loss_reduction={args.loss_reduction}, "
+#                f"lr={args.lr}, " + ", ".join(layer_grad_norms),
+#                flush=True,
+#            )
+#end of added
+        optimizer.step()
+        #===================================== new added =====================================
+
+        # Check the updated model using the same training loss definition
+        with torch.no_grad():
+            W_current = W_e2e(model, args)
+            Y_current = W_current[X_x, X_y]
+            current_train_loss = criterion(Y_current, Y).item()
+
+        # For unregularized experiments (useful for stopping early)
+        #if args.optim == 'GD' and args.lam == 0 and current_train_loss < 1e-7:
+        #    print(f"Early stopping at iteration {T + 1}, "
+        #          f"train_loss={current_train_loss:.10e}")
+        #    break
+        if T % args.log_interval == 0 or T == args.niters - 1:
+            with torch.no_grad():
+
+                # Recompute prediction matrix after optimizer.step()
+                W_test = W_e2e(model, args)
+
+                # NEW: Full Matrix MSE
+                full_mse = torch.mean((W_test - W) ** 2).item()
+
+                # Test RMSE (unobserved entries)
+                Y_pred = W_test[XT_x, XT_y]
+
+                if args.data == "ml-100k-sample":
+                    Y_pred = torch.clamp(Y_pred, min=1, max=5)
+
+                test_rmse = torch.sqrt(torch.mean((Y_pred - Y_test) ** 2)).item()
+
+                # Training RMSE (observed entries)
+                Y_train_pred = W_test[X_x, X_y]
+
+                train_rmse = torch.sqrt(torch.mean((Y_train_pred - Y) ** 2)).item()
+
+                # Effective Rank
+                effrank = effective_rank(W_test).item()
+
+                # Singular Value
+                singular_values = torch.linalg.svdvals(W_test)
+
+                sv1 = singular_values[0].item()
+                sv5 = singular_values[4].item()
+                print(f"depth: {args.depth}, iteration: {T + 1}, train_RMSE: {train_rmse:.6f}, test_RMSE: {test_rmse:.6f},  "
+                      f"test_MSE: {test_rmse ** 2:.8f}, full_MSE: {full_mse:.10e}, erank: {effrank:.6f}, sv1: {sv1:.6f}, sv5: {sv5:.6f}")
 
                 if args.lrsched:
-                    scheduler.step(test_loss)          
+                    scheduler.step(test_rmse ** 2)
 
-    
-    
+        #===================================== new added =====================================
+
+        #===================================== original code =====================================
+        # if T % args.log_interval == 0:
+        #     with torch.no_grad():
+        #         Y_test = torch.clamp(Y_test, min=1, max=5)
+        #         test_loss = torch.mean((W_[XT_x, XT_y] - Y_test)**2)
+        #         train_loss = torch.mean((Y - Y_)**2)
+        #         effrank = effective_rank(W_).item()
+        #         test_rmse = torch.sqrt(test_loss).item()
+        #         print(f"depth: {args.depth}, iteration: {T}, test_RMSE: {test_rmse}, erank: {effrank}")
+        #
+        #         if args.lrsched:
+        #             scheduler.step(test_loss)
+        #===================================== original code =====================================
+
 # CP
 def solve_cp(data, args):
     """nuclear norm minimization method"""
@@ -304,7 +408,7 @@ def solve_opt(data, args):
     """)
     W_opt = torch.from_numpy(np.asarray(W_opt))
     
-
+# Select experimental parameters and algorithms
 def main():
     # parsing input parameters
     parser = argparse.ArgumentParser()
@@ -328,9 +432,22 @@ def main():
     parser.add_argument('--std', choices=["z", "minmax", None], default=None, help="std data")
     parser.add_argument('--incl_bias', type=bool, default=False, help="include bias")    
     parser.add_argument('--lr', type=float, default=0.01, help="init LR")    
-    parser.add_argument('--trainprop', type=float, default=0.8, help="training proportion")    
-    
+    parser.add_argument('--trainprop', type=float, default=0.8, help="training proportion")
+    # ===================================== new added =====================================
+    parser.add_argument('--seed', type=int, default=536,help="Random seed for reproducibility")
+    parser.add_argument("--loss_reduction", choices=["mean", "sum"],default="mean")
+
+    parser.add_argument("--init_mode",choices=["original", "paper"],default="original")
+    # ------------------------------------- new added -------------------------------------
+
     args = parser.parse_args()
+
+    # ===================================== new added =====================================
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    print(f"Random seed: {args.seed}")
+    # ------------------------------------- new added -------------------------------------
+
     if os.path.basename(os.getcwd()) != "synth" and args.data == "ml-100k-sample":
         print("run in synth")
         return
