@@ -1,6 +1,0 @@
-﻿# cs536-SecMI-FinalProject
-
-run: pip install requirements.txt
-Then, run ./train.sh (for Linux)
-
-
