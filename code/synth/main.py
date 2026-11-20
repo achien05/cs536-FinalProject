@@ -278,20 +278,20 @@ def solve_nn(data, args, device):
         loss.backward()
 
 #added by ai to aid in finding the gradient magnitudes
-#        if T == 0:
-#            layer_grad_norms = [
-#                f"layer_{index}={layer.weight.grad.norm().item():.10e}"
-#                for index, layer in enumerate(
-#                    (module for module in model if isinstance(module, nn.Linear)),
-#                    start=1,
-#                )
-#            ]
-#            print(
-#                f"initial_weight_grad_norms: depth={args.depth}, "
-#                f"init_mode={args.init_mode}, loss_reduction={args.loss_reduction}, "
-#                f"lr={args.lr}, " + ", ".join(layer_grad_norms),
-#                flush=True,
-#            )
+        if T == 0:
+            layer_grad_norms = [
+                f"layer_{index}={layer.weight.grad.norm().item():.10e}"
+                for index, layer in enumerate(
+                    (module for module in model if isinstance(module, nn.Linear)),
+                    start=1,
+                )
+            ]
+            print(
+                f"initial_weight_grad_norms: depth={args.depth}, "
+                f"init_mode={args.init_mode}, loss_reduction={args.loss_reduction}, "
+                f"lr={args.lr}, " + ", ".join(layer_grad_norms),
+                flush=True,
+            )
 #end of added
         optimizer.step()
         #===================================== new added =====================================
@@ -337,8 +337,10 @@ def solve_nn(data, args, device):
 
                 sv1 = singular_values[0].item()
                 sv5 = singular_values[4].item()
+                sv6 = singular_values[5].item()
+
                 print(f"depth: {args.depth}, iteration: {T + 1}, train_RMSE: {train_rmse:.6f}, test_RMSE: {test_rmse:.6f},  "
-                      f"test_MSE: {test_rmse ** 2:.8f}, full_MSE: {full_mse:.10e}, erank: {effrank:.6f}, sv1: {sv1:.6f}, sv5: {sv5:.6f}")
+                      f"test_MSE: {test_rmse ** 2:.8f}, full_MSE: {full_mse:.10e}, erank: {effrank:.6f}, sv1: {sv1:.6f}, sv5: {sv5:.6f}, sv6: {sv6:.6f}")
 
                 if args.lrsched:
                     scheduler.step(test_rmse ** 2)
