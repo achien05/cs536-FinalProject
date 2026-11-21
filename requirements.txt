@@ -7,3 +7,4 @@ rpy2
 fancyimpute
 h5py
 requests
+matplotlib
