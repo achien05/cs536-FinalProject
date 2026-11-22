@@ -203,7 +203,7 @@ def solve_nn(data, args, device):
 
     if args.optim == "GD":
         optimizer = optim.SGD(model.parameters(), lr=args.lr)
-        print(f"debug: GD Optimizer: {optimizer}")
+        #print(f"debug: GD Optimizer: {optimizer}")
     elif args.optim == "Adam":
         optimizer = optim.Adam(model.parameters(), lr=args.lr)
     elif args.optim == "Adam_amsgrad":
