@@ -203,7 +203,7 @@ def solve_nn(data, args, device):
 
     if args.optim == "GD":
         optimizer = optim.SGD(model.parameters(), lr=args.lr)
-        print(f"debug: GD Optimizer: {optimizer}")
+        # print(f"debug: GD Optimizer: {optimizer}")
     elif args.optim == "Adam":
         optimizer = optim.Adam(model.parameters(), lr=args.lr)
     elif args.optim == "Adam_amsgrad":
@@ -320,8 +320,19 @@ def solve_nn(data, args, device):
 
                 sv1 = singular_values[0].item()
                 sv5 = singular_values[4].item()
-                print(f"depth: {args.depth}, iteration: {T + 1}, train_RMSE: {train_rmse:.6f}, test_RMSE: {test_rmse:.6f},  "
-                      f"test_MSE: {test_rmse ** 2:.8f}, full_MSE: {full_mse:.10e}, erank: {effrank:.6f}, sv1: {sv1:.6f}, sv5: {sv5:.6f}")
+                sv6 = singular_values[5].item()
+                print(
+                    f"depth: {args.depth}, "
+                    f"iteration: {T + 1}, "
+                    f"train_RMSE: {train_rmse:.6f}, "
+                    f"test_RMSE: {test_rmse:.6f},  "
+                    f"test_MSE: {test_rmse ** 2:.8f}, "
+                    f"full_MSE: {full_mse:.10e}, "
+                    f"erank: {effrank:.6f}, "
+                    f"sv1: {sv1:.6f}, "
+                    f"sv5: {sv5:.6f}, "
+                    f"sv6: {sv6:.6f}"
+                )
 
                 if args.lrsched:
                     scheduler.step(test_rmse ** 2)
@@ -342,6 +353,30 @@ def solve_nn(data, args, device):
         #             scheduler.step(test_loss)
         #===================================== original code =====================================
 
+#===================================== new added =====================================
+# This is the help function used for reproduce figure 4 result
+def evaluate_fig4(data, W_pred, method_name):
+    W, X_x, X_y, XT_x, XT_y, Y = data # unpack data
+
+    W_pred = torch.as_tensor(
+        W_pred,
+        dtype=W.dtype,
+        device=W.device,
+    )
+    Y_test = W[XT_x, XT_y]
+    Y_pred = W_pred[XT_x, XT_y]
+
+    test_mse = torch.mean((Y_pred - Y_test) ** 2).item()
+    erank = effective_rank(W_pred).item()
+
+    print(
+        f"method: {method_name}, "
+        f"test_MSE: {test_mse:.10e}, "
+        f"erank: {erank:.6f}"
+    )
+
+#===================================== new added =====================================
+
 # CP
 def solve_cp(data, args):
     """nuclear norm minimization method"""
@@ -356,6 +391,11 @@ def solve_cp(data, args):
     problem.solve(solver=cp.SCS, verbose=True, use_indirect=False)
 
     W_cp = torch.from_numpy(Z.value).float()
+    # ===================================== new added =====================================
+    evaluate_fig4(data, W_cp, "CP")
+    #===================================== new added =====================================
+
+
 
 # SI
 def solve_si(data, args):
@@ -371,25 +411,80 @@ def solve_si(data, args):
     X_incomplete_normalized = BiScaler().fit_transform(W_masked)
     W_SI = SoftImpute().fit_transform(X_incomplete_normalized)
     W_SI = torch.from_numpy(W_SI)
+    # ===================================== new added =====================================
+    evaluate_fig4(data, W_SI, "SI")
+    # ===================================== new added =====================================
 
-# Opt
+# ===================================== new added =====================================
+# the original code given by auther used the rpy2.robjects.numpy2ri.activate() which is not
+# fit the new version, thus I did changes:
+# (1) delete the numpy2ri.activate()
+# (2) use the conversion.localconverter() instead to convert matrix between R and NumPy
+# (3) Mark any missing value as NaN to avoid the zero values are treated as missing values
+#
 def solve_opt(data, args):
-    rpy2.robjects.numpy2ri.activate()
-    W, X_x, X_y, XT_x, XT_y, Y = data # unpack data
-    mask = torch.zeros([args.N,args.N])
-    mask[X_x, X_y] = 1
-    W_masked = mask * W
-    W_m = W_masked.numpy()
-    nr,nc = W_m.shape
-    W_mr = ro.r.matrix(W_m, nrow=nr, ncol=nc)
-    ro.r.assign("x", W_mr)
-    W_opt = ro.r("""
-    library(ROptSpace)
-    x[x==0] <- NA
-    res <- OptSpace(x)
-    res$X %*% res$S %*% t(res$Y)
+    import rpy2.robjects as ro
+    from rpy2.robjects import numpy2ri, default_converter, conversion
+    from rpy2.robjects.packages import importr
+
+    W, X_x, X_y, XT_x, XT_y, Y = data
+
+    # Build matrix with missing entries represented by NaN
+    W_m = np.full((args.N, args.N), np.nan, dtype=np.float64)
+    W_m[X_x.numpy(), X_y.numpy()] = Y.numpy()
+
+    nr, nc = W_m.shape
+
+    # Load R package
+    importr("ROptSpace")
+
+    # Convert NumPy matrix to R matrix
+    with conversion.localconverter(default_converter + numpy2ri.converter):
+        W_mr = conversion.py2rpy(W_m)
+
+    # Ensure the object is an R matrix
+    W_mr = ro.r.matrix(W_mr, nrow=nr, ncol=nc)
+    ro.globalenv["x"] = W_mr
+
+    # Run OptSpace
+    W_opt_r = ro.r("""
+        res <- ROptSpace::OptSpace(x)
+        res$X %*% res$S %*% t(res$Y)
     """)
-    W_opt = torch.from_numpy(np.asarray(W_opt))
+
+    # Convert result back to NumPy
+    with conversion.localconverter(default_converter + numpy2ri.converter):
+        W_opt_np = conversion.rpy2py(W_opt_r)
+
+    W_opt = torch.from_numpy(np.asarray(W_opt_np).copy()).float()
+
+    # Evaluate Figure 4 metrics
+    evaluate_fig4(data, W_opt, "OPT")
+# ===================================== new added =====================================
+
+# ===================================== original code =====================================
+# Opt
+# def solve_opt(data, args):
+#
+#
+#     rpy2.robjects.numpy2ri.activate()
+#     W, X_x, X_y, XT_x, XT_y, Y = data # unpack data
+#     mask = torch.zeros([args.N,args.N])
+#     mask[X_x, X_y] = 1
+#     W_masked = mask * W
+#     W_m = W_masked.numpy()
+#     nr,nc = W_m.shape
+#     W_mr = ro.r.matrix(W_m, nrow=nr, ncol=nc)
+#     ro.r.assign("x", W_mr)
+#     W_opt = ro.r("""
+#     library(ROptSpace)
+#     x[x==0] <- NA
+#     res <- OptSpace(x)
+#     res$X %*% res$S %*% t(res$Y)
+#     """)
+#     W_opt = torch.from_numpy(np.asarray(W_opt))
+
+# ===================================== original code =====================================
     
 # Select experimental parameters and algorithms
 def main():
