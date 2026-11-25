@@ -106,9 +106,46 @@ def setup_ml_100k_sample(W, trn_prop):
 
 
 def setup_data(args):
+    # ===================================== new added =====================================
+    # this change is for Hypothesis of Gaussian Noise Robustness
     if args.data == "gaussian":
         W = gen_lowrank(args.N, args.rank)
-        return setup_matcomplete(W, args.N, args.sample_size)
+
+        data = setup_matcomplete(
+            W, args.N, args.sample_size
+        )
+
+        W, X_x, X_y, XT_x, XT_y, Y = data
+
+        # Save original clean observations
+        Y_clean = Y.clone()
+
+        # Add Gaussian noise to observed training values only
+        noise_generator = torch.Generator(device="cpu")
+        noise_generator.manual_seed(args.seed + 10000)
+
+        noise = torch.randn(
+            Y_clean.shape,
+            generator=noise_generator,
+            dtype=Y_clean.dtype
+        ) * args.noise_std
+
+        Y_noisy = Y_clean + noise
+
+
+        print(f"Noise std: {args.noise_std}")
+        print(f"Clean Y std: {Y_clean.std().item():.6f}")
+        print(f"Actual noise std: {noise.std().item():.6f}")
+
+        return W, X_x, X_y, XT_x, XT_y, Y_noisy
+    # ===================================== new added =====================================
+
+    # ===================================== original code =====================================
+    # if args.data == "gaussian":
+    #     W = gen_lowrank(args.N, args.rank)
+    #     return setup_matcomplete(W, args.N, args.sample_size)
+    # ===================================== original code =====================================
+
     elif args.data == "ml-100k-sample":
         print(data_dir_100k)
         if not os.path.exists(data_dir_100k):
@@ -308,9 +345,30 @@ def solve_nn(data, args, device):
                 test_rmse = torch.sqrt(torch.mean((Y_pred - Y_test) ** 2)).item()
 
                 # Training RMSE (observed entries)
+                # Y_train_pred = W_test[X_x, X_y]
+                #
+                # train_rmse = torch.sqrt(torch.mean((Y_train_pred - Y) ** 2)).item()
+                # ===================================== Gaussian Noise Robustness Hypothesis =====================================
+                # Training predictions
                 Y_train_pred = W_test[X_x, X_y]
 
-                train_rmse = torch.sqrt(torch.mean((Y_train_pred - Y) ** 2)).item()
+                # 1. Noisy Training MSE
+                # Compare predictions with the noisy training observations
+                train_mse_noisy = torch.mean(
+                    (Y_train_pred - Y) ** 2
+                ).item()
+
+                # 2. Clean Training MSE
+                # Compare predictions with the original clean ground truth
+                Y_train_clean = W[X_x, X_y]
+
+                train_mse_clean = torch.mean(
+                    (Y_train_pred - Y_train_clean) ** 2
+                ).item()
+
+                # 3. Training RMSE (keep existing logging compatibility)
+                train_rmse = train_mse_noisy ** 0.5
+                # ===================================== Gaussian Noise Robustness Hypothesis=====================================
 
                 # Effective Rank
                 effrank = effective_rank(W_test).item()
@@ -321,19 +379,34 @@ def solve_nn(data, args, device):
                 sv1 = singular_values[0].item()
                 sv5 = singular_values[4].item()
                 sv6 = singular_values[5].item()
+                # print(
+                #     f"depth: {args.depth}, "
+                #     f"iteration: {T + 1}, "
+                #     f"train_RMSE: {train_rmse:.6f}, "
+                #     f"test_RMSE: {test_rmse:.6f},  "
+                #     f"test_MSE: {test_rmse ** 2:.8f}, "
+                #     f"full_MSE: {full_mse:.10e}, "
+                #     f"erank: {effrank:.6f}, "
+                #     f"sv1: {sv1:.6f}, "
+                #     f"sv5: {sv5:.6f}, "
+                #     f"sv6: {sv6:.6f}"
+                # )
                 print(
                     f"depth: {args.depth}, "
                     f"iteration: {T + 1}, "
-                    f"train_RMSE: {train_rmse:.6f}, "
-                    f"test_RMSE: {test_rmse:.6f},  "
+                    f"noise_std: {args.noise_std:.4f}, "
+                    f"lambda: {args.lam:.4f}, "
+                    # f"train_RMSE: {train_rmse:.6f}, "
+                    f"train_MSE_noisy: {train_mse_noisy:.8f}, "
+                    f"train_MSE_clean: {train_mse_clean:.8f}, "
+                    # f"test_RMSE: {test_rmse:.6f}, "
                     f"test_MSE: {test_rmse ** 2:.8f}, "
-                    f"full_MSE: {full_mse:.10e}, "
+                    # f"full_MSE: {full_mse:.10e}, "
                     f"erank: {effrank:.6f}, "
                     f"sv1: {sv1:.6f}, "
                     f"sv5: {sv5:.6f}, "
                     f"sv6: {sv6:.6f}"
                 )
-
                 if args.lrsched:
                     scheduler.step(test_rmse ** 2)
 
@@ -516,6 +589,14 @@ def main():
     parser.add_argument("--loss_reduction", choices=["mean", "sum"],default="mean")
 
     parser.add_argument("--init_mode",choices=["original", "paper"],default="original")
+
+    # new added for gaussian noise robustness hypothesis
+    parser.add_argument(
+        "--noise_std",
+        type=float,
+        default=0.0,
+        help="Gaussian noise standard deviation for observed training values"
+    )
     # ------------------------------------- new added -------------------------------------
 
     args = parser.parse_args()
