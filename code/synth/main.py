@@ -103,11 +103,11 @@ def setup_ml_100k_sample(W, trn_prop):
     return W, X_x, X_y, XT_x, XT_y, Y
 
 # new code for patterned missingness
-def setup_ml_100k_patterned(W,trn_prop,Head=False):
+def setup_ml_100k_patterned(W,trn_prop,train_split,Head=False):
     cols = ['User ID','Movie ID','Rating','Timestamp']
     u1 = pd.read_csv(data_dir_100k+'/u.data', delimiter='\t', header=None, names=cols)
     n_train = int(trn_prop * u1.shape[0])   #80% marker (ex: 79 in [0,100))
-    n_test = int((1-trn_prop)*u1.shape[0])
+    #n_test = int((1-trn_prop)*u1.shape[0])
     u1 = u1.to_numpy()
 
     #new additions
@@ -117,27 +117,28 @@ def setup_ml_100k_patterned(W,trn_prop,Head=False):
     head = u[sorted_unum[int(trn_prop*len(sorted_unum)):]]  #take top 20%
 
     rng.shuffle(u1) #random shuffle
-    _,uidx = np.unique(u1[:,0],return_index=True) #get one of each user's reviews
-    mask = np.zeros(len(u1),dtype=bool)
-    mask[uidx]=True
-    ukeep=u1[mask]
-    urest=u1[~mask]
+    #_,uidx = np.unique(u1[:,0],return_index=True) #get one of each user's reviews
+    #mask = np.zeros(len(u1),dtype=bool)
+    #mask[uidx]=True
+    #ukeep=u1[mask]
+    #urest=u1[~mask]
 
     if Head:
-        primary = urest[np.isin(urest[:,0],list(head))]
-        secondary = urest[np.isin(urest[:,0],list(tail))]
+        primary = u1[np.isin(u1[:,0],head)]
+        secondary = u1[np.isin(u1[:,0],tail)]
     else:
-        primary = urest[np.isin(urest[:,0],list(tail))]
-        secondary = urest[np.isin(urest[:,0],list(head))]
+        primary = u1[np.isin(u1[:,0],tail)]
+        secondary = u1[np.isin(u1[:,0],head)]
 
-    primary_idx=rng.choice(primary.shape[0],size=round(0.8*n_test)+1,replace=False) #sample 80% for 20% holdout
+    primary_idx=rng.choice(primary.shape[0],size=round(train_split*n_train),replace=False) #sample 80% for 20% holdout
     pri_mask=np.zeros(primary.shape[0],dtype=bool)
     pri_mask[primary_idx]=True    
-    secondary_idx=rng.choice(secondary.shape[0],size=round(0.2*n_test),replace=False) #sample 20% for 20% holdout
+    secondary_idx=rng.choice(secondary.shape[0],size=round((1-train_split)*n_train),replace=False) #sample 20% for 20% holdout
     sec_mask=np.zeros(secondary.shape[0],dtype=bool)
     sec_mask[secondary_idx]=True
-    test=np.concatenate((primary[pri_mask],secondary[sec_mask]),axis=0)
-    train=np.concatenate((primary[~pri_mask],secondary[~sec_mask], ukeep),axis=0)
+    
+    train=np.concatenate((primary[pri_mask],secondary[sec_mask]),axis=0)
+    test=np.concatenate((primary[~pri_mask],secondary[~sec_mask]),axis=0)
 
     X_x = torch.from_numpy(train[:,0] - 1)  #take random 80% for training
     X_y =  torch.from_numpy(train[:,1] - 1)
@@ -169,8 +170,8 @@ def setup_data(args):
             )
         
         W = data_ml_100k()
-        if args.data == "ml-100k-patternedhead" or args.data == "ml-100k-patternedtail":
-            return setup_ml_100k_patterned(W, args.trainprop, args.data == "ml-100k-patternedhead")
+        if args.data == "ml-100k-patternedhead" or args.data == "ml-100k-patternedtail" and args.train_split < 1 and (args.train_split*args.trainprop*100000 < 48460):
+            return setup_ml_100k_patterned(W, args.trainprop, args.train_split, args.data == "ml-100k-patternedhead")
         else:
             return setup_ml_100k_sample(W, args.trainprop)
 
@@ -486,7 +487,7 @@ def main():
     # ===================================== new added =====================================
     parser.add_argument('--seed', type=int, default=536,help="Random seed for reproducibility")
     parser.add_argument("--loss_reduction", choices=["mean", "sum"],default="mean")
-
+    parser.add_argument("--train_split", type=float, default=0.6)
     parser.add_argument("--init_mode",choices=["original", "paper"],default="original")
     # ------------------------------------- new added -------------------------------------
 
