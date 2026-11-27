@@ -116,12 +116,7 @@ def setup_ml_100k_patterned(W,trn_prop,train_split,Head=False):
     tail = u[sorted_unum[:int(trn_prop*len(sorted_unum))]]  #take bottom 80% based on count
     head = u[sorted_unum[int(trn_prop*len(sorted_unum)):]]  #take top 20%
 
-    rng.shuffle(u1) #random shuffle
-    #_,uidx = np.unique(u1[:,0],return_index=True) #get one of each user's reviews
-    #mask = np.zeros(len(u1),dtype=bool)
-    #mask[uidx]=True
-    #ukeep=u1[mask]
-    #urest=u1[~mask]
+    rng.shuffle(u1)
 
     if Head:
         primary = u1[np.isin(u1[:,0],head)]
@@ -136,7 +131,7 @@ def setup_ml_100k_patterned(W,trn_prop,train_split,Head=False):
     secondary_idx=rng.choice(secondary.shape[0],size=round((1-train_split)*n_train),replace=False) #sample 20% for 20% holdout
     sec_mask=np.zeros(secondary.shape[0],dtype=bool)
     sec_mask[secondary_idx]=True
-    
+
     train=np.concatenate((primary[pri_mask],secondary[sec_mask]),axis=0)
     test=np.concatenate((primary[~pri_mask],secondary[~sec_mask]),axis=0)
 
