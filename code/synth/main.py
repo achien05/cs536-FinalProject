@@ -146,16 +146,6 @@ def setup_ml_100k_patterned(W,trn_prop,Head=False):
     XT_y =  torch.from_numpy(test[:,1] - 1)
     return W, X_x, X_y, XT_x, XT_y, Y
 # new code end
-#junk
-    #print(test.shape, train.shape,primary[pri_mask].shape,secondary[sec_mask].shape,primary[~pri_mask].shape,secondary[~sec_mask].shape)
-    #holdout=np.concatenate((test,train),axis=0)
-    #print(primary.shape,secondary.shape)
-    #print(urest.shape, tail_data.shape,head_data.shape)
-    #a = np.concatenate((primary,secondary),axis=0)
-    #a_s=a[np.lexsort(a.T)]
-    #urest_s=urest[np.lexsort(a.T)]
-    #print(np.array_equal(a_s, urest_s))
-#junk end
 
 def setup_data(args):
     if args.data == "gaussian":
