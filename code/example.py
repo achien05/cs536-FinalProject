@@ -28,7 +28,7 @@ parser.add_argument('--niter', type=int, default=100)
 parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--ilam', type=float, default=0.1)
 parser.add_argument('--ulam', type=float, default=0.0001)
-parser.add_argument('--test', type=float, default=0.2)
+parser.add_argument('--test', type=float, default=0.2, help="enter test percentage, labels might be train percentage")
 
 args = parser.parse_args()
 
@@ -72,7 +72,7 @@ else:
 
 train, test = random_train_test_split(dataset_100k, args.test)
 
-model.fit(train, test, verbose=False)
+model.fit(train, test, verbose=True)
 
 train_rmse = rmse_score(model, train)
 test_rmse = rmse_score(model, test)

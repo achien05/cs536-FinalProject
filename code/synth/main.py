@@ -17,15 +17,13 @@ sys.path.insert(0, code_dir)
 from spotlight.datasets.movielens import get_movielens_dataset  #to enable
 from collections import defaultdict
 from functools import reduce
-import cvxpy as cp
-import rpy2.robjects as ro
-import rpy2.robjects.numpy2ri
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 
 root_dir = os.getcwd()
 data_dir_100k = root_dir + "/ml-100k"
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+rng=np.random.default_rng()
 
 # data generating process
 def effective_rank(mat):
@@ -53,7 +51,7 @@ def gen_lowrank(N, rank):
     W = W / np.linalg.norm(W, 'fro') * N # normalization
     return torch.from_numpy(W).float()
 
-# movielens
+# movielens: moves data from df into matrix W
 def data_ml_100k(data_dir=data_dir_100k, std_data=None):
     cols = ['User ID','Movie ID','Rating','Timestamp']
     df = pd.read_csv(data_dir + '/u.data', delimiter='\t', header=None, names=cols)
@@ -92,25 +90,78 @@ def setup_matcomplete(W, N, n_train):
 
 
 def setup_ml_100k_sample(W, trn_prop):
-    cols = ['User ID','Movie ID','Rating','Timestamp']
-    u1 = pd.read_csv(data_dir_100k+'/u.data', delimiter='\t', header=None, names=cols)
-    n_train = int(trn_prop * u1.shape[0])    
-    u1 = u1.to_numpy()    
-    np.random.shuffle(u1)
-    X_x = torch.from_numpy(u1[:n_train,0] - 1)
+    cols = ['User ID','Movie ID','Rating','Timestamp'] #df columns
+    u1 = pd.read_csv(data_dir_100k+'/u.data', delimiter='\t', header=None, names=cols)  #dataframe
+    n_train = int(trn_prop * u1.shape[0])   #calc n_train
+    u1 = u1.to_numpy()    #turn to numpy
+    np.random.shuffle(u1)   #shuffle
+    X_x = torch.from_numpy(u1[:n_train,0] - 1)  #take random 80% for training
     X_y =  torch.from_numpy(u1[:n_train,1] - 1)
     Y = W[X_x, X_y]
     XT_x = torch.from_numpy(u1[(n_train+1):,0] - 1)
     XT_y =  torch.from_numpy(u1[(n_train+1):,1] - 1)
     return W, X_x, X_y, XT_x, XT_y, Y
 
+# new code for patterned missingness
+def setup_ml_100k_patterned(W,trn_prop,Head=False):
+    cols = ['User ID','Movie ID','Rating','Timestamp']
+    u1 = pd.read_csv(data_dir_100k+'/u.data', delimiter='\t', header=None, names=cols)
+    n_train = int(trn_prop * u1.shape[0])   #80% marker (ex: 79 in [0,100))
+    n_test = int((1-trn_prop)*u1.shape[0])
+    u1 = u1.to_numpy()
+
+    #new additions
+    u,unum = np.unique(u1[:,0], return_counts = True) #gets counts to identify bottom 80%
+    sorted_unum=np.argsort(unum)  #sort by counts
+    tail = u[sorted_unum[:int(trn_prop*len(sorted_unum))]]  #take bottom 80% based on count
+    head = u[sorted_unum[int(trn_prop*len(sorted_unum)):]]  #take top 20%
+
+    rng.shuffle(u1) #random shuffle
+    _,uidx = np.unique(u1[:,0],return_index=True) #get one of each user's reviews
+    mask = np.zeros(len(u1),dtype=bool)
+    mask[uidx]=True
+    ukeep=u1[mask]
+    urest=u1[~mask]
+
+    if Head:
+        primary = urest[np.isin(urest[:,0],list(head))]
+        secondary = urest[np.isin(urest[:,0],list(tail))]
+    else:
+        primary = urest[np.isin(urest[:,0],list(tail))]
+        secondary = urest[np.isin(urest[:,0],list(head))]
+
+    primary_idx=rng.choice(primary.shape[0],size=round(0.8*n_test)+1,replace=False) #sample 80% for 20% holdout
+    pri_mask=np.zeros(primary.shape[0],dtype=bool)
+    pri_mask[primary_idx]=True    
+    secondary_idx=rng.choice(secondary.shape[0],size=round(0.2*n_test),replace=False) #sample 20% for 20% holdout
+    sec_mask=np.zeros(secondary.shape[0],dtype=bool)
+    sec_mask[secondary_idx]=True
+    test=np.concatenate((primary[pri_mask],secondary[sec_mask]),axis=0)
+    train=np.concatenate((primary[~pri_mask],secondary[~sec_mask], ukeep),axis=0)
+
+    X_x = torch.from_numpy(train[:,0] - 1)  #take random 80% for training
+    X_y =  torch.from_numpy(train[:,1] - 1)
+    Y = W[X_x, X_y]
+    XT_x = torch.from_numpy(test[:,0] - 1)
+    XT_y =  torch.from_numpy(test[:,1] - 1)
+    return W, X_x, X_y, XT_x, XT_y, Y
+# new code end
+#junk
+    #print(test.shape, train.shape,primary[pri_mask].shape,secondary[sec_mask].shape,primary[~pri_mask].shape,secondary[~sec_mask].shape)
+    #holdout=np.concatenate((test,train),axis=0)
+    #print(primary.shape,secondary.shape)
+    #print(urest.shape, tail_data.shape,head_data.shape)
+    #a = np.concatenate((primary,secondary),axis=0)
+    #a_s=a[np.lexsort(a.T)]
+    #urest_s=urest[np.lexsort(a.T)]
+    #print(np.array_equal(a_s, urest_s))
+#junk end
 
 def setup_data(args):
     if args.data == "gaussian":
         W = gen_lowrank(args.N, args.rank)
         return setup_matcomplete(W, args.N, args.sample_size)
-    elif args.data == "ml-100k-sample":
-        print(data_dir_100k)
+    elif args.data == "ml-100k-sample" or args.data == "ml-100k-patternedtail" or args.data == "ml-100k-patternedhead":
         if not os.path.exists(data_dir_100k):
             dataset_100k = get_movielens_dataset(variant='100K')
             output = np.column_stack((
@@ -128,7 +179,11 @@ def setup_data(args):
             )
         
         W = data_ml_100k()
-        return setup_ml_100k_sample(W, args.trainprop)
+        if args.data == "ml-100k-patternedhead" or args.data == "ml-100k-patternedtail":
+            return setup_ml_100k_patterned(W, args.trainprop, args.data == "ml-100k-patternedhead")
+        else:
+            return setup_ml_100k_sample(W, args.trainprop)
+
     
 # Create a single or multi-layer network
 def build_nn(shape, D, nonlinear, device, incl_bias=False):
@@ -188,7 +243,7 @@ def solve_nn(data, args, device):
     W, X_x, X_y, XT_x, XT_y, Y = data
     if args.data == "gaussian":
         shape = (args.N, args.N)
-    elif args.data == "ml-100k-sample":
+    elif args.data == "ml-100k-sample" or args.data == "ml-100k-patternedtail" or args.data == "ml-100k-patternedhead":
         shape = (943,1682)
     
     model = build_nn(shape, args.depth, args.nonlinear, device, args.incl_bias)
@@ -243,7 +298,7 @@ def solve_nn(data, args, device):
     
 
     Y_test = W[XT_x, XT_y]
-
+    
     for T in range(args.niters):
         W_ = W_e2e(model, args)
         Y_ = W_[X_x, X_y]
@@ -363,6 +418,7 @@ def solve_nn(data, args, device):
 
 # CP
 def solve_cp(data, args):
+    import cvxpy as cp
     """nuclear norm minimization method"""
     W, X_x, X_y, XT_x, XT_y, Y = data # unpack data
     Z = cp.Variable([args.N,args.N])
@@ -393,6 +449,8 @@ def solve_si(data, args):
 
 # Opt
 def solve_opt(data, args):
+    import rpy2.robjects as ro
+    import rpy2.robjects.numpy2ri
     rpy2.robjects.numpy2ri.activate()
     W, X_x, X_y, XT_x, XT_y, Y = data # unpack data
     mask = torch.zeros([args.N,args.N])
@@ -415,7 +473,7 @@ def main():
     # parsing input parameters
     parser = argparse.ArgumentParser()
     parser.add_argument('--method', choices=["DLNN", "CP", "SI", "OPT"], default="DLNN", help="choice of algorithm")
-    parser.add_argument('--data', choices=["gaussian", "ml-100k-sample"], default="gaussian")
+    parser.add_argument('--data', choices=["gaussian", "ml-100k-sample", "ml-100k-patternedhead", "ml-100k-patternedtail"], default="gaussian")
     parser.add_argument('--rank', type=int, default=5, help="rank of the matrix to complete")
     parser.add_argument('--depth', type=int, default=3, help="depth of DLNN")
     parser.add_argument('--fold', type=int, default=1, help="MovieLens CV fold number")
@@ -448,21 +506,23 @@ def main():
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     print(f"Random seed: {args.seed}")
+    rng=np.random.default_rng(seed=args.seed)
     # ------------------------------------- new added -------------------------------------
 
     if os.path.basename(os.getcwd()) != "synth" and args.data == "ml-100k-sample":
         print("run in synth")
         return
+    
     data = setup_data(args)
 
     if args.method == "DLNN":
         device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
         solve_nn(data, args, device)
-    elif args.method == "CP":
+    elif args.method == "CP" and args.data != "ml-100k-patterned":
         solve_cp(data, args)
-    elif args.method == "SI":
+    elif args.method == "SI" and args.data != "ml-100k-patterned":
         solve_si(data, args)
-    elif args.method == "OPT":
+    elif args.method == "OPT" and args.data != "ml-100k-patterned":
         solve_opt(data, args)
 
 
