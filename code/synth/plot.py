@@ -658,11 +658,11 @@ def main():
     if args.result == "hypoth2":
         folder = "./hypothesis2"
         my_plot(
-            filename_list = ["./ml-100k/tb2_Adam_lam0_prop0.8.txt","./ml-100k/tb2_Adam_lam1.5_prop0.8.txt",],
+            filename_list = ["./ml-100k/tb2_GD_lam0_prop0.8.txt","./ml-100k/tb2_GD_lam1.5_prop0.8.txt","./ml-100k/tb2_Adam_lam0_prop0.8.txt","./ml-100k/tb2_Adam_lam1.5_prop0.8.txt",],
             display_properties = "test_RMSE",
             figure_title ="Hypothesis2: randomly sampled training data, with and without penalty",
-            legend_name = ["lambda"],
-            legend_arms_name = [0.0, 1.5],
+            legend_name = ["optimizer","lambda"],
+            legend_arms_name = [["GD", 0.0],["GD", 1.5],["Adam", 0.0],["Adam", 1.5]],
         )
         my_plot(
             filename_list = [f"{folder}/h2_Adam_head_lam0_prop0.8.txt",f"{folder}/h2_Adam_head_lam1.5_prop0.8.txt",],
