@@ -116,8 +116,6 @@ def setup_ml_100k_patterned(W,trn_prop,train_split,Head=False):
     tail = u[sorted_unum[:int(trn_prop*len(sorted_unum))]]  #take bottom 80% based on count
     head = u[sorted_unum[int(trn_prop*len(sorted_unum)):]]  #take top 20%
 
-    rng.shuffle(u1)
-
     if Head:
         primary = u1[np.isin(u1[:,0],head)]
         secondary = u1[np.isin(u1[:,0],tail)]

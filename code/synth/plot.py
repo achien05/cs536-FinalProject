@@ -110,7 +110,8 @@ def my_plot(
     figure_title,
     legend_name="Legend",
     legend_arms_name=None,
-    y_scale="linear"
+    y_scale="linear",
+    drop_first=False
 ):
 
     if not filename_list:
@@ -129,6 +130,9 @@ def my_plot(
 
     for i, filename in enumerate(filename_list):
         df = read_log(filename)
+
+        if drop_first:
+            df = df.iloc[1:]
 
         if display_properties not in df.columns:
             raise ValueError(f"Metric '{display_properties}' not found in {filename}")
@@ -301,7 +305,7 @@ def my_plot_pair(
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--result', choices=["fig1", "fig2", "fig3", "hypoth1"], default="fig1", help="choice of plot result")
+    parser.add_argument('--result', choices=["fig1", "fig2", "fig3", "hypoth1", "hypoth2"], default="fig1", help="choice of plot result")
     args = parser.parse_args()
 
     # figure 1 plot:
@@ -650,6 +654,53 @@ def main():
             legend_name = ["lambda", "sv"],
             legend_arms_name = [[0.0, 0.0001], ["1st", "5th","6th"]],
         )
+# hypothesis2: perform a stratified split of the MovieLens100k dataset to measure effects of performance
+    if args.result == "hypoth2":
+        folder = "./hypothesis2"
+        my_plot(
+            filename_list = ["./ml-100k/tb2_Adam_lam0_prop0.8.txt","./ml-100k/tb2_Adam_lam1.5_prop0.8.txt",],
+            display_properties = "test_RMSE",
+            figure_title ="Hypothesis2: randomly sampled training data, with and without penalty",
+            legend_name = ["lambda"],
+            legend_arms_name = [0.0, 1.5],
+        )
+        my_plot(
+            filename_list = [f"{folder}/h2_Adam_head_lam0_prop0.8.txt",f"{folder}/h2_Adam_head_lam1.5_prop0.8.txt",],
+            display_properties = "test_RMSE",
+            figure_title ="Hypothesis2: head user-biased training data, with and without penalty",
+            legend_name = ["lambda"],
+            legend_arms_name = [0.0, 1.5],
+        )
+        my_plot(
+            filename_list = [f"{folder}/h2_Adam_tail_lam0_prop0.8.txt",f"{folder}/h2_Adam_tail_lam1.5_prop0.8.txt",],
+            display_properties = "test_RMSE",
+            figure_title ="Hypothesis2: tail user-biased training data, with and without penalty",
+            legend_name = ["lambda"],
+            legend_arms_name = [0.0, 1.5],
+        )
+        my_plot(
+            filename_list = ["./ml-100k/tb2_Adam_lam1.5_prop0.8.txt",f"{folder}/h2_Adam_head_lam1.5_prop0.8.txt", f"{folder}/h2_Adam_tail_lam1.5_prop0.8.txt"],
+            display_properties = "test_RMSE",
+            figure_title ="Hypothesis2: test_rmse random vs head-favored vs tail-favored",
+            legend_name = ["training data bias"],
+            legend_arms_name = ["random", "head-favored","tail-favored"],
+        )
+        my_plot(
+            filename_list = ["./ml-100k/tb2_Adam_lam1.5_prop0.8.txt",f"{folder}/h2_Adam_head_lam1.5_prop0.8.txt", f"{folder}/h2_Adam_tail_lam1.5_prop0.8.txt"],
+            display_properties = "erank",
+            figure_title ="Hypothesis2: eff. rank random vs head-favored vs tail-favored",
+            legend_name = ["training data bias"],
+            legend_arms_name = ["random", "head-favored","tail-favored"],
+            drop_first = True,
+        )
+        my_plot(
+            filename_list = ["./ml-100k/tb2_Adam_lam1.5_prop0.8.txt",f"{folder}/h2_Adam_head_lam1.5_prop0.8.txt", f"{folder}/h2_Adam_tail_lam1.5_prop0.8.txt"],
+            display_properties = "sv1",
+            figure_title ="Hypothesis2: sv1 random vs head-favored vs tail-favored",
+            legend_name = ["training data bias"],
+            legend_arms_name = ["random", "head-favored","tail-favored"],
+        )
+        
 
 if __name__ == "__main__":
     main()
